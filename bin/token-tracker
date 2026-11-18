@@ -1,0 +1,5 @@
+#!/bin/sh
+# Use Arch's system Python, which has the installed PyGObject bindings.
+ROOT=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 -m token_tracker "$@"
