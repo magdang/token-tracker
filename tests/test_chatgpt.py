@@ -26,7 +26,7 @@ class ChatGPTTests(unittest.TestCase):
         self.config = Path(self.temp.name) / 'config/accounts.json'
         self.identity = '1' * 32
         self.patchers = [patch.object(chatgpt, 'STATE', self.state),
-                         patch.object(chatgpt.shutil, 'which', return_value=FIXTURE),
+                         patch.dict(os.environ, {'TOKEN_TRACKER_CODEX': FIXTURE}),
                          patch.object(chatgpt, 'load_accounts', side_effect=lambda: load_accounts(self.config)),
                          patch.object(chatgpt, 'save_accounts', side_effect=lambda a: save_accounts(a, self.config))]
         for p in self.patchers:

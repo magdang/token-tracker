@@ -11,6 +11,9 @@ assert Path.cwd() == root / 'work'
 assert os.environ['HOME'] == str(root / 'home')
 assert not any(k.startswith(('OPENAI_', 'AZURE_', 'ANTHROPIC_', 'CODEX_')) and k != 'CODEX_HOME' for k in os.environ)
 assert 'NODE_OPTIONS' not in os.environ
+if sys.argv[1:] == ['--version']:
+    print('codex-cli 0.170.0')
+    sys.exit(0)
 scenario = root / 'fixture.json'
 def options():
     return json.loads(scenario.read_text()) if scenario.exists() else {}

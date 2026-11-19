@@ -80,7 +80,14 @@ Use the ID printed by `add` or `connect` for `set-key` and `remove`.
 
 ### Link three ChatGPT subscription accounts
 
-Install **codex-cli 0.170.0** and keep it on your PATH. This integration was
+Use **Codex CLI 0.170.0** (npm package `@openai/codex`). The tracker searches
+absolute PATH directories, then `~/.npm-global/bin/codex` and `~/.local/bin/codex`,
+so desktop launchers need not inherit your terminal PATH. For a custom install,
+set `TOKEN_TRACKER_CODEX` to its absolute executable path in the tracker's launch
+environment. npm launchers also need Node.js; the tracker checks PATH, the
+launcher's directory, and standard system bin directories for `node`. It never
+loads shell startup files. Existing working installations need no upgrade.
+This integration was
 verified against that installed version's generated JSON schemas, not inferred
 from latest-main documentation. No MCP dependency or API key is needed.
 

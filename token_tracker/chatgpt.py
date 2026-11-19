@@ -48,6 +48,63 @@ class AccountError(ValueError):
     """Only fixed, safe messages cross the transport boundary."""
 
 
+def executable_file(value):
+    path = Path(value)
+    return (path.is_absolute() and not any(ord(c) < 32 for c in str(path))
+            and path.is_file() and os.access(path, os.X_OK))
+
+
+def resolve_codex(executable=None):
+    """Resolve using the real home, before creating the isolated child environment."""
+    directories = [p for p in os.environ.get('PATH', os.defpath).split(os.pathsep)
+                   if p and Path(p).is_absolute() and Path(p).resolve() != Path.cwd()]
+    search_path = os.pathsep.join(directories)
+    override = executable if executable is not None else os.environ.get('TOKEN_TRACKER_CODEX')
+    if override is not None:
+        candidates = [os.fspath(override)]
+    else:
+        candidates = [str(Path(p) / 'codex') for p in directories]
+        candidates += [str(Path.home() / p / 'codex') for p in ('.npm-global/bin', '.local/bin')]
+    invalid = False
+    for candidate in candidates:
+        try:
+            if override is None and Path(candidate).parent.resolve() == Path.cwd():
+                continue
+            if not executable_file(candidate):
+                invalid |= Path(candidate).exists() or override is not None
+                continue
+            with open(candidate, 'rb') as stream:
+                header = stream.readline(128).rstrip()
+            command = [candidate]
+            if header == b'#!/usr/bin/env node':
+                node = next((str(Path(p) / 'node') for p in directories +
+                             [str(Path(candidate).parent), '/usr/local/bin', '/usr/bin', '/bin']
+                             if executable_file(Path(p) / 'node')), None)
+                if node is None:
+                    raise AccountError('Codex CLI was found, but Node.js is unavailable. Make its node executable available to the desktop session.')
+                command = [node, candidate]
+            return command, search_path
+        except OSError:
+            invalid = True
+    if invalid:
+        raise AccountError('Codex CLI was found or explicitly configured, but is not an accessible absolute executable. Check permissions or TOKEN_TRACKER_CODEX.')
+    raise AccountError('Codex CLI was not found. Set TOKEN_TRACKER_CODEX to its absolute path, or install @openai/codex (tested with 0.170.0).')
+
+
+def check_codex(command, env, cwd, timeout):
+    try:
+        result = subprocess.run([*command, '--version'], env=env, cwd=cwd,
+                                capture_output=True, timeout=timeout, check=False, umask=0o077)
+    except OSError:
+        raise AccountError('Codex CLI was found but could not start. Check its executable and interpreter permissions.') from None
+    except subprocess.TimeoutExpired:
+        raise AccountError('Codex CLI version check timed out; check the configured executable.') from None
+    if result.returncode:
+        raise AccountError('Codex CLI was found but failed to start. Check its runtime installation; no account changes are needed.')
+    if result.stdout.strip() != b'codex-cli 0.170.0':
+        raise AccountError('Unsupported Codex CLI version or invalid executable. This account integration requires 0.170.0; set TOKEN_TRACKER_CODEX to a compatible executable.')
+
+
 def private_dir(path):
     path = Path(path)
     if path.is_symlink():
@@ -90,15 +147,13 @@ class Server:
         self.close_lock = threading.Lock()
         self.lease = None
         self.process = None
+        command, search_path = resolve_codex(executable)
         private_dir(STATE)
         private_dir(STATE / 'chatgpt')
         self.root = private_dir(home_for(identity))
         for name in ('codex', 'home', 'work', 'config', 'data', 'cache'):
             private_dir(self.root / name)
         secure_tree(self.root)
-        executable = executable or shutil.which('codex')
-        if not executable:
-            raise AccountError('Codex CLI is missing; install codex-cli 0.170.0 to link ChatGPT.')
         try:
             self.lease = os.open(self.root / 'connection.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
             fcntl.flock(self.lease, fcntl.LOCK_SH)
@@ -111,13 +166,18 @@ class Server:
             env = {k: os.environ[k] for k in ('PATH', 'LANG', 'LC_ALL', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR')
                    if k in os.environ}
             env.update(HOME=str(self.root / 'home'), CODEX_HOME=str(self.root / 'codex'),
+                       PATH=search_path,
                        XDG_CONFIG_HOME=str(self.root / 'config'), XDG_DATA_HOME=str(self.root / 'data'),
                        XDG_CACHE_HOME=str(self.root / 'cache'))
-            self.process = subprocess.Popen(
-                [executable, 'app-server', '--strict-config', '--listen', 'stdio://'],
-                cwd=self.root / 'work', env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, umask=0o077,
-            )
+            check_codex(command, env, self.root / 'work', timeout)
+            try:
+                self.process = subprocess.Popen(
+                    [*command, 'app-server', '--strict-config', '--listen', 'stdio://'],
+                    cwd=self.root / 'work', env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, umask=0o077,
+                )
+            except OSError:
+                raise AccountError('Codex CLI was found but app-server could not start. Check executable and interpreter permissions.') from None
             self.reader = threading.Thread(target=self._read, daemon=True)
             self.reader.start()
             self.call('initialize', {'clientInfo': {'name': 'token_tracker', 'version': '0.2'},
@@ -138,7 +198,7 @@ class Server:
             while True:
                 line = self.process.stdout.readline(MAX_LINE + 1)
                 if not line:
-                    raise AccountError('Codex app-server stopped; retry or reconnect.')
+                    raise AccountError('Codex app-server stopped; check the CLI runtime and retry. No account changes are needed.')
                 if len(line) > MAX_LINE or not line.endswith(b'\n'):
                     raise AccountError('Codex app-server exceeded its output limit.')
                 try:
