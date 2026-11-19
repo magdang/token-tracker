@@ -1,6 +1,8 @@
-/* Or add #custom-token-tracker to your existing #network/#battery rule. */
+/* Merge this tracker-scoped rule into your existing Waybar stylesheet. */
 #custom-token-tracker {
     background: transparent;
     padding: 0 10px;
     margin-top: 3px;
 }
+
+/* Alternatively add #custom-token-tracker to an existing module rule. */

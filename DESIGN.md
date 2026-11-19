@@ -25,8 +25,8 @@ or workspaces are rejected rather than showing overlapping quota as independent.
 Codex owns credential storage and refresh; the tracker reads only structured
 account and quota responses. No generation requests or ambient-account fallback.
 Removing a link invalidates pending results, closes its child, and waits for
-readers before deleting that managed home. See README for protocol sources,
-three-account sign-in steps, and deliberate attribution limits.
+readers before deleting that managed home. See the [account documentation](docs/accounts.md)
+for multi-account sign-in steps and deliberate attribution limits.
 
 ## Optional standalone overlay
 

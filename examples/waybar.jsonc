@@ -1,11 +1,15 @@
-// Merge into your existing bar; put custom/token-tracker immediately before network.
+// Merge only this property into your existing top-level Waybar object.
+// Keep your current modules-right and insert "custom/token-tracker" immediately
+// before the Wi-Fi/network module that is actually present there.
 {
-  "modules-right": ["custom/token-tracker", "network", "battery"],
   "custom/token-tracker": {
-    "exec": "/absolute/path/to/token-tracker/bin/token-tracker waybar",
-    "on-click": "/absolute/path/to/token-tracker/bin/token-tracker accounts",
+    "exec": "'/absolute/path with spaces/token-tracker/bin/token-tracker' waybar",
+    "on-click": "'/absolute/path with spaces/token-tracker/bin/token-tracker' accounts",
     "return-type": "json",
     "restart-interval": 5,
     "tooltip": true
   }
 }
+
+// Do not add "interval": the executable is a continuous JSON stream.
+// restart-interval only restarts the command if that stream exits.
