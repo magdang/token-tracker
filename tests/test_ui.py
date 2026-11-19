@@ -45,10 +45,10 @@ class TimestampTests(unittest.TestCase):
         self.assertEqual(reset_text("2026-11-18T12:00:00"), "Reset time needs a timezone")
 
     def test_budget_format(self):
-        self.assertEqual(metric_value(Metric("Budget", 12.4, 30, "USD")), "$12.40 / $30.00")
+        self.assertEqual(metric_value(Metric("Budget", 12.4, 30, "USD")), "$17.60 left in budget")
 
     def test_percentage(self):
-        self.assertEqual(metric_value(Metric("Weekly", 42)), "42%")
+        self.assertEqual(metric_value(Metric("Weekly", 42)), "58% left")
 
 
 class PollingTests(unittest.TestCase):

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import signal
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime
 from time import monotonic
 
 import gi
@@ -16,27 +16,29 @@ from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell  # noqa: E402
 
 from .core import CONFIG, Metric, Snapshot, fetch, load_accounts, timestamp
 from .interaction import HoverState
+from .display import (bounded, context_text, metric_value, observed_at, remaining,
+                      reset_text, usage_detail, window_label)
 
 
 REFRESH_SECONDS = 5
 CSS = b"""
-window { background: transparent; color: #eeeeee; font-family: sans-serif; font-size: 12px; }
+window { background: transparent; color: #eeeeee; font-family: sans-serif; font-size: 14pt; }
 .panel { background: #191919; border: 1px solid #454545; border-radius: 6px; padding: 16px; }
-.title { font-size: 12px; font-weight: 600; }
-.muted { color: #b0b0b0; font-size: 11px; }
-.account { font-size: 12px; font-weight: 600; }
-.value { font-size: 12px; font-feature-settings: "tnum"; }
+.title { font-size: 14pt; font-weight: 600; }
+.muted { color: #b0b0b0; font-size: 13pt; }
+.account { font-size: 14pt; font-weight: 600; }
+.value { font-weight: bold; font-size: 16pt; font-feature-settings: "tnum"; }
 .warning { color: #efbc7b; }
 button { background: transparent; color: #bbbbbb; border: none; box-shadow: none;
          border-radius: 3px; padding: 2px 6px; min-height: 20px; min-width: 20px; }
 button:hover { background: #303030; color: #ffffff; }
 button:focus { outline: 1px solid #aaaaaa; }
 button.launcher { background: #191919; border: 1px solid #555555; color: #eeeeee;
-                  padding: 4px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; }
+                  padding: 4px 8px; font-size: 13pt; font-weight: 600; border-radius: 4px; }
 button.launcher:hover { background: #303030; border-color: #aaaaaa; }
 separator { background: #363636; min-height: 1px; }
-progressbar trough { background: #3b3b3b; min-height: 3px; border: none; border-radius: 0; }
-progressbar progress { background: #dddddd; min-height: 3px; border: none; border-radius: 0; }
+progressbar trough { background: #3b3b3b; min-height: 6px; border: none; border-radius: 0; }
+progressbar progress { background: #dddddd; min-height: 6px; border: none; border-radius: 0; }
 progressbar.warning progress { background: #efbc7b; }
 """
 
@@ -48,42 +50,6 @@ def label(text, style=None):
     if style:
         widget.get_style_context().add_class(style)
     return widget
-
-
-def observed_at(value):
-    if not value:
-        return "Not yet updated"
-    try:
-        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if when.tzinfo is None:
-            return "Timestamp needs a timezone"
-        age = max(0, int((datetime.now(timezone.utc) - when).total_seconds() / 60))
-        return f"Observed {age}m ago · {when.astimezone():%b %d, %H:%M}"
-    except (ValueError, TypeError, AttributeError):
-        return "Unknown observation time"
-
-
-def metric_value(metric):
-    if metric.unit == "USD":
-        value = f"${metric.used:,.2f}"
-        if metric.limit > 0:
-            value += f" / ${metric.limit:,.2f}"
-        return value
-    if metric.limit == 100 and metric.unit == "%":
-        return f"{metric.used:g}%"
-    return f"{metric.used:g} / {metric.limit:g} {metric.unit}".rstrip()
-
-
-def reset_text(value):
-    try:
-        reset = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if reset.tzinfo is None:
-            return "Reset time needs a timezone"
-        if reset < datetime.now(timezone.utc):
-            return "Reset passed · awaiting new snapshot"
-        return f"Resets {reset.astimezone():%a %H:%M}"
-    except (ValueError, TypeError, AttributeError):
-        return "Reset time unavailable"
 
 
 class Overlay(Gtk.Application):
@@ -348,7 +314,7 @@ class Overlay(Gtk.Application):
 
     def card(self, account):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
-        box.pack_start(label(account["name"], "account"), False, False, 0)
+        box.pack_start(label(bounded(account["name"], 64), "account"), False, False, 0)
         result = self.results.get(account["id"])
         if not result:
             box.pack_start(label("Checking…", "muted"), False, False, 0)
@@ -357,36 +323,30 @@ class Overlay(Gtk.Application):
             f"{result.source} · {observed_at(result.updated_at)}\n{result.note}"
         )
         if result.error:
-            box.pack_start(label(result.error + " Retrying automatically.", "warning"), False, False, 0)
+            box.pack_start(label(bounded(result.error), "warning"), False, False, 0)
         for metric in result.metrics:
             row = Gtk.Box(spacing=12)
-            row.pack_start(label(metric.label, "muted"), True, True, 0)
+            row.pack_start(label(window_label(metric.label), "muted"), True, True, 0)
             row.pack_end(label(metric_value(metric), "value"), False, False, 0)
             box.pack_start(row, False, False, 0)
-            if metric.limit > 0:
+            fraction = remaining(metric)
+            if fraction is not None:
                 bar = Gtk.ProgressBar()
-                bar.set_fraction(max(0, min(1, metric.used / metric.limit)))
-                if metric.used / metric.limit >= 0.8:
+                bar.set_fraction(fraction)
+                if fraction <= 0.2:
                     bar.get_style_context().add_class("warning")
                 box.pack_start(bar, False, False, 0)
-            if metric.unit == "USD" and metric.limit > 0:
-                remaining = metric.limit - metric.used
-                box.pack_start(label(
-                    f"${abs(remaining):,.2f} " + ("left in budget" if remaining >= 0 else "over budget"),
-                    "muted",
-                ), False, False, 0)
-            if metric.resets_at:
+            detail = usage_detail(metric)
+            if detail:
+                box.pack_start(label(detail, "muted"), False, False, 0)
+            if metric.resets_at is not None:
                 box.pack_start(label(reset_text(metric.resets_at), "muted"), False, False, 0)
         if not result.metrics and not result.error:
             box.pack_start(label(
                 "Manual · no usage entered" if result.source == "manual" else "Usage unavailable",
                 "muted",
             ), False, False, 0)
-        if result.source in ("manual", "local snapshot", "stale"):
-            box.pack_start(label(
-                ("Manual · " if result.source == "manual" else "") + observed_at(result.updated_at),
-                "muted",
-            ), False, False, 0)
+        box.pack_start(label(context_text(account, result), "muted"), False, False, 0)
         return box
 
 

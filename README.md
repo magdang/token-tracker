@@ -30,7 +30,16 @@ adapt [examples/waybar.css](examples/waybar.css). Back up both files first.
 The `AI` entry lives inside Waybar. Hover opens its native GTK tooltip; moving
 off closes it, just like Wi-Fi. Clicking AI opens the native account manager.
 The tooltip is informational and cannot be interacted with. No unsupported
-`on-hover` hook is used. Your existing tooltip theme applies.
+`on-hover` hook is used. The tracker scopes **14pt body text and bold 16pt
+remaining values** to its own Pango tooltip; other tooltips keep their theme.
+Each 20-segment monochrome bar fills with **remaining allowance**, rounded down
+to 5% steps. The adjacent number is more precise. Window labels follow reported
+durations, with reset countdowns and observation age. Manual, local and stale
+sources remain explicit; failed refreshes retain their original observation time.
+Unknown caps have no bar. Dollar amounts show a user-defined budget, never
+provider credit; uncapped credits stay credit balances. Exhausted/over-limit
+rows retain the used amount. Aliases identify accounts here; verified identity
+details remain available in the account manager.
 
 `./bin/token-tracker waybar` streams one JSON line every **5 seconds**, including
 while hidden. Do not set Waybar's `interval`: this is a continuous script.
@@ -169,8 +178,8 @@ keyring entries retain their existing removal behavior.
 
 **Scope:** This is the subscription's **coding quota**, including usage that
 OpenCode bills to the same ChatGPT plan. It does not expose the ChatGPT website's
-per-model message limits. Primary/secondary durations are shown exactly in minutes
-as reported, across all returned buckets. Missing usage is unknown, not 0%; a
+per-model message limits. Primary/secondary durations follow the reported minutes, formatted as whole
+hours/days when exact, across all returned buckets. Missing usage is unknown, not 0%; a
 reported 0% remains 0%. Credit balances are credits, **not USD**. Provider data can
 lag, and five-second polling does not guarantee the backend updates that often.
 
@@ -230,6 +239,7 @@ export PYTHONPYCACHEPREFIX=/tmp/opencode/pycache TMPDIR=/tmp/opencode
 /usr/bin/python3 -m unittest discover -s tests -v
 /usr/bin/python3 -m compileall -q token_tracker
 ./tests/run-smoke.sh --waybar-stream
+/usr/bin/python3 tests/render_waybar_demo.py
 ./tests/run-smoke.sh --synthetic
 /usr/bin/python3 tests/smoke_accounts.py
 # On an unlocked Hyprland session (moves/restores the pointer):

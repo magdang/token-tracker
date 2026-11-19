@@ -25,9 +25,9 @@ class WaybarTests(unittest.TestCase):
         tooltip = json.loads(raw)['tooltip']
         parsed = ElementTree.fromstring('<root>' + tooltip + '</root>')
         text = ''.join(parsed.itertext())
-        for part in (self.accounts[0]['name'], self.accounts[1]['name'], '<error>&"\'', '<Session>: 42', 'Checking…'):
+        for part in (self.accounts[0]['name'], self.accounts[1]['name'], '<error>&"\'', '<Session>   58% left', 'Checking…'):
             self.assertIn(part, text)
-        self.assertEqual(len(parsed.findall('b')), 3)
+        self.assertEqual(len(parsed.findall('.//b')), 4)
 
     def test_missing_and_demo(self):
         self.assertIn('No accounts configured', report([], {}))

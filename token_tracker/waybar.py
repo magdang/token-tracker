@@ -6,8 +6,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from html import escape
 from time import monotonic, sleep
+from datetime import datetime, timedelta, timezone
 
-from .core import Metric, Snapshot, fetch, keyring, load_accounts, timestamp
+from .core import Metric, Snapshot, fetch, keyring, load_accounts
+from .display import (bounded, context_text, metric_value, quota_notes, remaining,
+                      reset_text, usage_detail, window_label)
 
 
 class Collector:
@@ -81,50 +84,56 @@ class Collector:
 
 
 def markup(value):
-    # Pango accepts XML characters only, even when markup delimiters are escaped.
-    return escape("".join(c for c in value if c in "\t\n\r" or
-                          0x20 <= ord(c) <= 0xD7FF or 0xE000 <= ord(c) <= 0xFFFD or
-                          0x10000 <= ord(c) <= 0x10FFFF))
+    return escape(bounded(value))
 
 
-def report(accounts, results, *, demo=False, error=None):
+def report(accounts, results, *, demo=False, error=None, now=None):
+    now = now or datetime.now(timezone.utc)
     lines = ['<b>AI usage' + (' · DEMO · sample data' if demo else '') + '</b>']
     if error:
         lines.append(markup(error))
     elif not accounts:
         lines.append('No accounts configured. Click AI to connect a ChatGPT account.')
     for account in accounts:
-        lines.append('\n<b>' + markup(account['name']) + '</b>')
+        lines.append('\n<b>' + markup(bounded(account['name'], 64)) + '</b>')
         result = results.get(account['id'])
         if result is None:
             lines.append('Checking…')
             continue
-        lines.append(markup(result.source))
-        for metric in result.metrics:
-            value = f'{metric.used:g} / {metric.limit:g} {metric.unit}'
-            lines.append(markup(f'{metric.label}: {value}'))
-            if metric.resets_at:
-                lines.append(markup(f'Resets: {metric.resets_at}'))
-        if result.updated_at:
-            lines.append(markup(f'Observed: {result.updated_at}'))
-        if result.note:
-            lines.append(markup(result.note))
+        lines.append(markup(context_text(account, result, now)))
         if result.error:
-            lines.append(markup(result.error))
+            lines.append('<b>' + markup(result.error) + '</b>')
+        for metric in result.metrics:
+            lines.append('\n' + markup(window_label(metric.label)) + '   <span size="16384" weight="bold">' + markup(metric_value(metric)) + '</span>')
+            fraction = remaining(metric)
+            if fraction is not None:
+                filled = int(fraction * 20 + 1e-9)
+                lines.append('<span font_family="monospace">' + '█' * filled + '<span alpha="40%">' + '░' * (20 - filled) + '</span></span>')
+            detail = usage_detail(metric)
+            if detail:
+                lines.append(markup(detail))
+            if metric.resets_at is not None:
+                lines.append(markup(reset_text(metric.resets_at, now)))
+        note = quota_notes(account, result)
+        if note:
+            lines.append(markup(note))
         if not result.metrics and not result.error:
             lines.append('No usage data available.')
-    lines.append('\nUpdates every 5 seconds · failed providers retry after 5 minutes')
-    return json.dumps({'text': 'AI DEMO' if demo else 'AI', 'tooltip': '\n'.join(lines),
+    return json.dumps({'text': 'AI DEMO' if demo else 'AI', 'tooltip': '<span font_family="sans-serif" size="14336" weight="normal">' + '\n'.join(lines) + '</span>',
                        'class': 'demo' if demo else 'usage'}, ensure_ascii=False)
 
 
 def frame(collector, demo=False):
     if demo:
-        accounts = [{'id': 'demo-personal', 'name': 'Personal · sample', 'provider': 'manual'},
-                    {'id': 'demo-work', 'name': 'Work · sample', 'provider': 'manual'}]
-        results = {a['id']: Snapshot(a['id'], 'DEMO', timestamp(),
-                   [Metric('Session', used), Metric('Weekly', 35)], 'Sample data; no linked credentials.')
-                   for a, used in zip(accounts, (72, 18))}
+        accounts = [{'id': 'demo-personal', 'name': 'Personal · sample', 'provider': 'chatgpt'},
+                    {'id': 'demo-work', 'name': 'Work · sample', 'provider': 'openai-api'}]
+        now = datetime.now(timezone.utc)
+        results = {
+            'demo-personal': Snapshot('demo-personal', 'DEMO', now.isoformat(), [
+                Metric('codex primary (300 min)', 32, resets_at=(now + timedelta(hours=2, minutes=15)).isoformat()),
+                Metric('codex secondary (10080 min)', 58, resets_at=(now + timedelta(days=3, hours=4)).isoformat())]),
+            'demo-work': Snapshot('demo-work', 'DEMO', now.isoformat(), [Metric('Month to date', 12.4, 30, 'USD')]),
+        }
         return report(accounts, results, demo=True)
     try:
         accounts = load_accounts()

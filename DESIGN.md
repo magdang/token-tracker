@@ -4,6 +4,12 @@ The recommended entry point is a Waybar custom module. It inherits the bar
 style and uses a native GTK hover tooltip, closing on pointer leave. A continuous
 JSON reporter updates every five seconds, with four background workers, one
 pending request per account, cached keyring lookups, and five-minute error retries.
+The tooltip uses scoped 14pt Pango body text, bold 16pt remaining values and
+20-segment monochrome bars (filled means remaining, floored to 5% steps).
+Reported window durations, reset countdowns, observation age and errors are
+kept visible. Unknown caps never produce bars; USD rows describe user budgets,
+not provider balance. Identity details stay in the manager, with aliases in the
+tooltip. Text is escaped, stripped of control characters and length bounded.
 Clicking AI opens a single-instance native GTK account manager; hovering remains
 informational. The account manager starts browser sign-in only on Add, displays
 the URL and a cancellable progress state, and requires confirmation of returned
@@ -30,7 +36,7 @@ dismisses it; clicking the button or invoking the command supports non-hover use
 - Solid charcoal surface; no blue tint, gradients, glow, or nested cards.
 - One system typeface, two sizes, aligned numeric values.
 - Account groups separated by one-pixel rules, not containers.
-- Thin monochrome bars; amber only for high usage/errors.
+- Monochrome remaining bars; amber only for low allowance/errors.
 - No repeated product slogans, decorative status pills, or fake live states.
 - Details and provenance in tooltips; manual/local/stale observations stay visible.
 - Demo mode explicitly labelled. No decorative animation.
