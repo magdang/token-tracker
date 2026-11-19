@@ -1,6 +1,9 @@
 """A persistent launcher and a hover-only usage panel. GTK stays on its main thread."""
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import signal
+import subprocess
 from datetime import datetime, timezone
 from time import monotonic
 
@@ -101,6 +104,8 @@ class Overlay(Gtk.Application):
         self.closed = False
         self.config_error = None
         self.last_checked = None
+        from .chatgpt import Sessions
+        self.chatgpt = Sessions()
         self.pool = ThreadPoolExecutor(max_workers=4)
         self.hover = HoverState(GLib.timeout_add, GLib.source_remove, self.open_panel, self.close_panel)
         self.connect("activate", self.activate_overlay)
@@ -109,6 +114,7 @@ class Overlay(Gtk.Application):
     def shutdown_overlay(self, *_):
         self.closed = True
         self.hover.cancel_close()
+        self.chatgpt.close()
         self.pool.shutdown(wait=False, cancel_futures=True)
 
     def surface(self, title, namespace, top, keyboard):
@@ -174,6 +180,11 @@ class Overlay(Gtk.Application):
         quit_button.set_tooltip_text("Exit Token Tracker, including the floating button")
         quit_button.connect("clicked", lambda *_: self.quit())
         header.pack_end(quit_button, False, False, 0)
+        accounts_button = Gtk.Button(label="Accounts")
+        accounts_button.connect("clicked", lambda *_: subprocess.Popen([
+            str(Path(__file__).resolve().parents[1] / "bin/token-tracker"), "accounts"
+        ]))
+        header.pack_end(accounts_button, False, False, 0)
         panel.pack_start(header, False, False, 0)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -251,9 +262,11 @@ class Overlay(Gtk.Application):
             accounts = load_accounts()
             self.config_error = None
         except (ValueError, OSError, KeyError):
+            self.chatgpt.reconcile([])
             self.config_error = "Cannot read account configuration."
             self.render()
             return
+        self.chatgpt.reconcile(accounts)
         for account in self.accounts:
             if account not in accounts:
                 identity = account["id"]
@@ -269,7 +282,7 @@ class Overlay(Gtk.Application):
                 continue
             # A slow account does not prevent other accounts refreshing.
             self.pending[identity] = dict(account)
-            future = self.pool.submit(fetch, dict(account))
+            future = self.pool.submit(self.chatgpt.fetch if account["provider"] == "chatgpt" else fetch, dict(account))
             future.add_done_callback(
                 lambda done, account=dict(account): self.queue_result(account, done)
             )
@@ -315,8 +328,7 @@ class Overlay(Gtk.Application):
         elif not self.accounts:
             self.cards.pack_start(label("No accounts connected", "account"), False, False, 0)
             self.cards.pack_start(label(
-                'Add one from the terminal:\n'
-                './bin/token-tracker add codex-local "Personal"', "muted"
+                'Use Accounts above to link ChatGPT, or add other providers from the terminal.', "muted"
             ), False, False, 0)
         else:
             for index, account in enumerate(self.accounts):
@@ -379,4 +391,9 @@ class Overlay(Gtk.Application):
 
 
 def run(demo=False, quit_after=None):
-    return Overlay(demo, quit_after).run([])
+    app = Overlay(demo, quit_after)
+    source = GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: app.quit() or True)
+    try:
+        return app.run([])
+    finally:
+        GLib.source_remove(source)

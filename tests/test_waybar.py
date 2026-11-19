@@ -114,3 +114,37 @@ class WaybarTests(unittest.TestCase):
         with patch.object(self.collector, 'collect', return_value=Snapshot('0', 'manual')):
             self.assertEqual(self.collector.tick([account])['0'].source, 'manual')
             self.assertIn('0', self.collector.pending)
+
+    def test_switching_config_away_and_back_invalidates_pending_result(self):
+        old = self.accounts[0]
+        future = Future()
+        self.collector.accounts = [old]
+        self.collector.pending['0'] = (old, future)
+        changed = dict(old, name='Changed')
+        self.collector.tick([changed])
+        self.collector.tick([old])
+        future.set_result(Snapshot('0', 'superseded'))
+        with patch.object(self.collector, 'collect', return_value=Snapshot('0', 'new')):
+            self.assertEqual(self.collector.tick([old]), {})
+
+    def test_four_worker_bound(self):
+        release = threading.Event()
+        entered = []
+        def wait(account):
+            entered.append(account['id'])
+            release.wait(2)
+            return Snapshot(account['id'], 'manual')
+        accounts = [dict(self.accounts[0], id=str(n)) for n in range(8)]
+        try:
+            with patch.object(self.collector, 'collect', side_effect=wait):
+                self.collector.tick(accounts)
+                deadline = time.monotonic() + 1
+                while len(entered) < 4 and time.monotonic() < deadline:
+                    time.sleep(.005)
+                self.assertEqual(len(entered), 4)
+                self.assertEqual(len(self.collector.pending), 8)
+                release.set()
+                for _, future in self.collector.pending.values():
+                    future.result(2)
+        finally:
+            release.set()

@@ -1,6 +1,7 @@
 """Continuous Waybar JSON reporter; hover never starts provider requests."""
 
 import json
+import signal
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from html import escape
@@ -11,6 +12,8 @@ from .core import Metric, Snapshot, fetch, keyring, load_accounts, timestamp
 
 class Collector:
     def __init__(self):
+        from .chatgpt import Sessions
+        self.chatgpt = Sessions()
         self.pool = ThreadPoolExecutor(max_workers=4)
         self.pending = {}
         self.results = {}
@@ -18,7 +21,13 @@ class Collector:
         self.keys = {}
         self.accounts = []
 
+    def close(self):
+        self.chatgpt.close()
+        self.pool.shutdown(wait=False, cancel_futures=True)
+
     def collect(self, account):
+        if account['provider'] == 'chatgpt':
+            return self.chatgpt.fetch(account)
         if account['provider'] != 'openai-api':
             return fetch(account)
         identity = account['id']
@@ -32,11 +41,15 @@ class Collector:
         return fetch(account, api_key=self.keys[identity])
 
     def tick(self, accounts):
+        self.chatgpt.reconcile(accounts)
         now = monotonic()
         for account in self.accounts:
             if account not in accounts:
                 for state in (self.results, self.retry, self.keys):
                     state.pop(account["id"], None)
+                if account["id"] in self.pending:
+                    _, future = self.pending[account["id"]]
+                    self.pending[account["id"]] = (None, future)
         self.accounts = [dict(a) for a in accounts]
         for identity, (account, future) in list(self.pending.items()):
             if not future.done():
@@ -79,7 +92,7 @@ def report(accounts, results, *, demo=False, error=None):
     if error:
         lines.append(markup(error))
     elif not accounts:
-        lines.append('No accounts configured. Use token-tracker add to connect an account.')
+        lines.append('No accounts configured. Click AI to connect a ChatGPT account.')
     for account in accounts:
         lines.append('\n<b>' + markup(account['name']) + '</b>')
         result = results.get(account['id'])
@@ -116,12 +129,18 @@ def frame(collector, demo=False):
     try:
         accounts = load_accounts()
     except (ValueError, OSError, KeyError):
+        collector.chatgpt.reconcile([])
         return report([], {}, error='Cannot read account configuration. Check accounts.json, then wait for refresh.')
     return report(accounts, collector.tick(accounts))
 
 
+def terminate(*_):
+    raise SystemExit(0)
+
+
 def run(demo=False):
     collector = Collector()
+    previous = signal.signal(signal.SIGTERM, terminate)
     try:
         while True:
             print(frame(collector, demo), flush=True)
@@ -129,4 +148,5 @@ def run(demo=False):
     except (BrokenPipeError, KeyboardInterrupt):
         return 0
     finally:
-        collector.pool.shutdown(wait=False, cancel_futures=True)
+        collector.close()
+        signal.signal(signal.SIGTERM, previous)

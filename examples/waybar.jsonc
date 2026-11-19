@@ -3,6 +3,7 @@
   "modules-right": ["custom/token-tracker", "network", "battery"],
   "custom/token-tracker": {
     "exec": "/absolute/path/to/token-tracker/bin/token-tracker waybar",
+    "on-click": "/absolute/path/to/token-tracker/bin/token-tracker accounts",
     "return-type": "json",
     "restart-interval": 5,
     "tooltip": true

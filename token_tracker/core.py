@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "token-tracker/accounts.json"
-PROVIDERS = ("openai-api", "codex-local", "manual")
+PROVIDERS = ("openai-api", "codex-local", "manual", "chatgpt")
 
 
 @dataclass
@@ -69,6 +69,10 @@ def validate(accounts):
             raise ValueError(f"Unsupported provider for {identity}")
         if not isinstance(account.get("name"), str) or not account["name"].strip():
             raise ValueError("Every account needs a name")
+        if account.get("provider") == "chatgpt":
+            from .chatgpt import home_for, validate_pin
+            home_for(identity)
+            validate_pin(account.get("verified"))
         if "budget" in account:
             positive(account["budget"])
         metrics = account.get("metrics", [])
@@ -89,6 +93,10 @@ def validate(accounts):
                 raise ValueError("Usage must be a finite nonnegative number") from None
             if not math.isfinite(used) or used < 0:
                 raise ValueError("Usage must be a finite nonnegative number")
+    from .chatgpt import duplicate
+    for account in accounts:
+        if account["provider"] == "chatgpt":
+            duplicate(account["verified"], accounts, account["id"])
     return accounts
 
 
@@ -104,6 +112,7 @@ def load_accounts(path=CONFIG):
 def save_accounts(accounts, path=CONFIG):
     validate(accounts)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".accounts-")
     try:
         with os.fdopen(fd, "w") as stream:
@@ -238,6 +247,14 @@ def codex_local(account):
 
 def fetch(account, api_key=None):
     try:
+        if account["provider"] == "chatgpt":
+            from .chatgpt import Sessions
+            sessions = Sessions()
+            try:
+                sessions.reconcile([account])
+                return sessions.fetch(account)
+            finally:
+                sessions.close()
         if account["provider"] == "openai-api":
             return openai_costs(account, api_key)
         if account["provider"] == "codex-local":
