@@ -1,7 +1,6 @@
 # Token Tracker
 
-Token Tracker is a minimalist, local-first `AI` usage button for Waybar. Put it
-immediately before your existing Wi-Fi/network module: hover it for remaining
+Token Tracker is a minimalist, local-first `AI` usage button for Waybar; hover it for remaining
 allowance bars, precise percentages, and reset countdowns; click it to manage
 ChatGPT connections. A continuous JSON stream refreshes every five seconds.
 
