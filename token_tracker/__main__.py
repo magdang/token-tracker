@@ -14,6 +14,8 @@ def main():
     overlay = sub.add_parser("overlay", help="Show overlay; running again toggles visibility")
     overlay.add_argument("--demo", action="store_true", help="Display explicitly labelled sample data")
     overlay.add_argument("--quit-after", type=int, help=argparse.SUPPRESS)
+    waybar = sub.add_parser("waybar", help="Stream JSON for a native Waybar hover tooltip")
+    waybar.add_argument("--demo", action="store_true", help="Labelled sample data; no credentials")
     sub.add_parser("status", help="Print real account snapshots as JSON")
     sub.add_parser("list", help="List configured accounts, without secrets")
     add = sub.add_parser("add", help="Add an independent account connection")
@@ -28,6 +30,9 @@ def main():
     key.add_argument("id")
     args = parser.parse_args()
     try:
+        if args.command == "waybar":
+            from .waybar import run
+            return run(args.demo)
         if args.command in (None, "overlay"):
             from .ui import run
             return run(getattr(args, "demo", False), getattr(args, "quit_after", None))

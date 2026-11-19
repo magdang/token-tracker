@@ -1,0 +1,10 @@
+// Merge into your existing bar; put custom/token-tracker immediately before network.
+{
+  "modules-right": ["custom/token-tracker", "network", "battery"],
+  "custom/token-tracker": {
+    "exec": "/absolute/path/to/token-tracker/bin/token-tracker waybar",
+    "return-type": "json",
+    "restart-interval": 5,
+    "tooltip": true
+  }
+}

@@ -1,4 +1,12 @@
-# Overlay design
+# Entry points
+
+The recommended entry point is a Waybar custom module. It inherits the bar
+style and uses a native GTK hover tooltip, closing on pointer leave. A continuous
+JSON reporter updates every five seconds, with four background workers, one
+pending request per account, cached keyring lookups, and five-minute error retries.
+No separate launcher or panel is started in this mode.
+
+## Optional standalone overlay
 
 Small desktop utility, not a dashboard. The only persistent surface is an
 `AI` button. Hover opens a right-aligned usage list; leaving both surfaces

@@ -1,0 +1,6 @@
+/* Or add #custom-token-tracker to your existing #network/#battery rule. */
+#custom-token-tracker {
+    background: transparent;
+    padding: 0 10px;
+    margin-top: 3px;
+}

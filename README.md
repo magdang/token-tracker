@@ -11,27 +11,53 @@ On Arch, dependencies are `python`, `python-gobject`, `gtk3`,
 Service such as GNOME Keyring). No pip dependencies.
 
 ```sh
+./bin/token-tracker waybar
 ./bin/token-tracker overlay
 ./bin/token-tracker overlay --demo
 ./bin/token-tracker list
 ./bin/token-tracker status
 ```
 
-Starts a small `AI` button at the top-right of the compositor's current monitor.
-The panel follows the button onto the same output. Hover to open it. Moving
-outside both button and panel closes the panel after a 180 ms grace period.
-The button remains visible. Click also opens it; Escape dismisses it and Quit
-exits the application. Running the command again toggles the panel.
+## Waybar (recommended)
 
-Accounts refresh automatically **every 5 seconds, including while collapsed**,
-without blocking GTK. Slow requests never overlap for the same account; errors
-back off from 10 seconds up to five minutes. Last successful data is retained
-and marked stale when refresh fails. Checking more frequently does not make
-provider billing or local snapshots update more frequently.
-No autostart or desktop configuration is changed. See `DESIGN.md` for UI decisions.
+Merge [examples/waybar.jsonc](examples/waybar.jsonc) into your existing config,
+replacing the executable path. Insert `custom/token-tracker` immediately before
+`network` in the existing module list, keeping your other modules. Add
+`#custom-token-tracker` to the same CSS rule as `#network` and `#battery`, or
+adapt [examples/waybar.css](examples/waybar.css). Back up both files first.
 
-For an optional shortcut, follow the [official Hyprland documentation](https://wiki.hypr.land/)
-for your installed version and use the absolute path to `bin/token-tracker overlay`.
+The `AI` entry lives inside Waybar. Hover opens its native GTK tooltip; moving
+off closes it, just like Wi-Fi. There is no click requirement or separate popup.
+The tooltip is informational and cannot be interacted with. No unsupported
+`on-hover` hook is used. Your existing tooltip theme applies.
+
+`./bin/token-tracker waybar` streams one JSON line every **5 seconds**, including
+while hidden. Do not set Waybar's `interval`: this is a continuous script.
+At most four provider calls run concurrently, with at most one pending request
+per account. Reporting stays responsive while calls run. Failures retain stale
+data and retry after five minutes. Each API credential is looked up once per
+reporter lifetime; after `set-key` or unlocking the keyring, reload Waybar.
+Cached keys stay in process memory only. New/reconfigured accounts are picked
+up automatically; removed/reconfigured accounts discard old snapshots.
+
+Reload the existing Waybar with `kill -USR2 WAYBAR_PID` (default reload action;
+check any `on-sigusr2` override). Do not launch a second bar. See the official
+[custom module docs](https://github.com/Alexays/Waybar/wiki/Module:-Custom) and
+[signal configuration](https://github.com/Alexays/Waybar/wiki/Configuration).
+Stop any previously launched `token-tracker overlay` process to remove its
+independent button. No Hyprland config or global package changes are needed.
+
+Use `waybar --demo` instead of `waybar` for explicitly labelled sample accounts.
+Real mode shows “No accounts configured” until you add your own connections.
+Demo never writes accounts or reads credentials.
+
+## Optional standalone overlay
+
+`overlay` remains available for desktops without Waybar. It starts a floating
+`AI` button. Hover opens the panel; leaving button and panel closes it after
+180 ms. Escape dismisses it, Quit exits it, and running it again toggles it.
+It refreshes every five seconds with per-account overlap protection and error
+backoff. Use only one entry point to avoid duplicate launchers. See `DESIGN.md`.
 
 ## Connect accounts
 
@@ -93,6 +119,7 @@ Manual metrics can be entered by editing a manual connection in the config:
 export PYTHONPYCACHEPREFIX=/tmp/opencode/pycache TMPDIR=/tmp/opencode
 /usr/bin/python3 -m unittest discover -s tests -v
 /usr/bin/python3 -m compileall -q token_tracker
+./tests/run-smoke.sh --waybar-stream
 ./tests/run-smoke.sh --synthetic
 # On an unlocked Hyprland session (moves/restores the pointer):
 ./tests/run-smoke.sh
@@ -102,5 +129,13 @@ Live credentials are not needed by tests. Demo data is explicitly marked and
 never written into account configuration. No telemetry or cloud backend.
 The real-pointer test additionally needs `wayland-scanner`, a C compiler,
 `libwayland-client` headers, and `grim`. It skips if hyprlock is active.
-Both smoke modes save only a demo-panel image to
+The standalone smoke modes save only a demo-panel image to
 `/tmp/opencode/token-tracker-hover.png`, not a full-desktop screenshot.
+
+The installed Waybar can also be checked on an unlocked session with
+`./tests/run-smoke.sh --waybar-desktop --tooltip-region 'x,y WxH'`.
+Choose a crop inside your tooltip using logical output coordinates. This needs
+`at-spi2-core` introspection and `tesseract` for visible-text checks. Add `--demo`
+when the module exec is temporarily set to `waybar --demo`; restore real mode
+and reload afterward. The test restores the pointer and saves only the supplied
+tooltip crop under `/tmp/opencode/token-tracker-waybar-{real,demo}-hover.png`.

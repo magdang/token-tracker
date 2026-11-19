@@ -145,8 +145,8 @@ def get_cost_page(params, key):
         return json.load(response)
 
 
-def openai_costs(account):
-    key = keyring(account["id"])
+def openai_costs(account, key=None):
+    key = key if key is not None else keyring(account["id"])
     now = datetime.now(timezone.utc)
     params = {
         "start_time": int(now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()),
@@ -236,10 +236,10 @@ def codex_local(account):
     )
 
 
-def fetch(account):
+def fetch(account, api_key=None):
     try:
         if account["provider"] == "openai-api":
-            return openai_costs(account)
+            return openai_costs(account, api_key)
         if account["provider"] == "codex-local":
             return codex_local(account)
         return Snapshot(
