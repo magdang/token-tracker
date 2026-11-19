@@ -27,9 +27,27 @@ class CoreTests(unittest.TestCase):
             validate([accounts[0], accounts[0]])
 
     def test_invalid_numbers(self):
-        for budget in (0, -1, float("nan"), float("inf")):
+        for budget in (None, {}, 0, -1, float("nan"), float("inf")):
             with self.assertRaises(ValueError):
                 validate([{"id": "a", "name": "A", "provider": "openai-api", "budget": budget}])
+
+    def test_malformed_config_is_a_validation_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "accounts.json"
+            for config in ([], None, {}, {"accounts": None}):
+                with self.subTest(config=config):
+                    path.write_text(json.dumps(config))
+                    with self.assertRaises(ValueError):
+                        load_accounts(path)
+        for metrics in (None, {}, [None], [{}], [{"label": "Usage", "used": None}]):
+            with self.subTest(metrics=metrics), self.assertRaises(ValueError):
+                validate([{"id": "a", "name": "A", "provider": "manual", "metrics": metrics}])
+
+    def test_manual_metrics_reject_values_that_cannot_render(self):
+        for overrides in ({"used": "42"}, {"limit": "100"}, {"label": {}}, {"unit": []}):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                validate([{"id": "a", "name": "A", "provider": "manual",
+                           "metrics": [{"label": "Usage", "used": 42, **overrides}]}])
 
     @patch("token_tracker.core.keyring", return_value="not-a-real-key")
     @patch("token_tracker.core.get_cost_page")

@@ -45,7 +45,10 @@ def timestamp():
 
 
 def positive(value):
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("Budget and limits must be finite positive numbers") from None
     if not math.isfinite(number) or number <= 0:
         raise ValueError("Budget and limits must be finite positive numbers")
     return number
@@ -68,9 +71,22 @@ def validate(accounts):
             raise ValueError("Every account needs a name")
         if "budget" in account:
             positive(account["budget"])
-        for metric in account.get("metrics", []):
+        metrics = account.get("metrics", [])
+        if not isinstance(metrics, list):
+            raise ValueError("metrics must be a list")
+        for metric in metrics:
+            if not isinstance(metric, dict) or "used" not in metric or "label" not in metric:
+                raise ValueError("Each metric needs a label and usage")
+            if not isinstance(metric["label"], str) or not isinstance(metric.get("unit", "%"), str):
+                raise ValueError("Metric labels and units must be text")
+            if any(not isinstance(metric.get(field, default), (int, float))
+                   for field, default in (("used", 0), ("limit", 100))):
+                raise ValueError("Metric usage and limits must be numbers")
             positive(metric.get("limit", 100))
-            used = float(metric["used"])
+            try:
+                used = float(metric["used"])
+            except (TypeError, ValueError):
+                raise ValueError("Usage must be a finite nonnegative number") from None
             if not math.isfinite(used) or used < 0:
                 raise ValueError("Usage must be a finite nonnegative number")
     return accounts
@@ -79,7 +95,10 @@ def validate(accounts):
 def load_accounts(path=CONFIG):
     if not path.exists():
         return []
-    return validate(json.loads(path.read_text())["accounts"])
+    config = json.loads(path.read_text())
+    if not isinstance(config, dict) or "accounts" not in config:
+        raise ValueError("Configuration needs an accounts list")
+    return validate(config["accounts"])
 
 
 def save_accounts(accounts, path=CONFIG):
