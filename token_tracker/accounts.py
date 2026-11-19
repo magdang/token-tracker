@@ -182,7 +182,8 @@ class Manager(Gtk.Application):
             except Exception as error:
                 message = str(error) if isinstance(error, AccountError) else 'Account operation failed; check configuration and retry.'
             self.post(self.finished, message)
-        self.worker = threading.Thread(target=work, daemon=True)
+        # Account operations own children and temporary credentials until finally.
+        self.worker = threading.Thread(target=work, daemon=False)
         self.worker.start()
         self.refresh()
 
@@ -197,6 +198,8 @@ class Manager(Gtk.Application):
         self.refresh()
 
     def shutdown_manager(self, *_):
+        if self.closed:
+            return
         self.closed = True
         self.cancel.set()
         self.reviewed.set()
@@ -212,4 +215,5 @@ def run():
     try:
         return app.run([])
     finally:
+        app.shutdown_manager()
         GLib.source_remove(source)

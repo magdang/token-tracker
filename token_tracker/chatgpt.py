@@ -75,8 +75,9 @@ def secure_tree(root):
 
 
 class Server:
-    def __init__(self, identity, executable=None, timeout=15):
+    def __init__(self, identity, executable=None, timeout=15, cancel=None):
         self.timeout = timeout
+        self.cancel = cancel
         self.condition = threading.Condition()
         self.write_lock = threading.Lock()
         self.operation = threading.Lock()
@@ -177,6 +178,8 @@ class Server:
         if method not in METHODS:
             raise AccountError('Only account RPCs are permitted.')
         with self.condition:
+            if self.cancel is not None and self.cancel.is_set():
+                raise AccountError('Sign-in cancelled.')
             if self.closed or self.failure:
                 raise AccountError(self.failure or 'Codex app-server is closed.')
             if len(self.waiters) >= 4:
@@ -188,13 +191,17 @@ class Server:
             self._send({'id': identity, 'method': method, 'params': params or {}})
             deadline = monotonic() + (self.timeout if timeout is None else timeout)
             with self.condition:
-                while self.waiters[identity] is None:
+                while True:
+                    if self.cancel is not None and self.cancel.is_set():
+                        raise AccountError('Sign-in cancelled.')
                     if self.failure or self.closed:
                         raise AccountError(self.failure or 'Codex app-server is closed.')
+                    if self.waiters[identity] is not None:
+                        break
                     remaining = deadline - monotonic()
                     if remaining <= 0:
                         raise AccountError('Codex account request timed out; retry later.')
-                    self.condition.wait(remaining)
+                    self.condition.wait(min(.2, remaining))
                 response = self.waiters[identity]
             if 'error' in response:
                 # Remote errors may contain tokens/URLs. Never expose their text.
@@ -364,6 +371,7 @@ class Sessions:
         self.lock = threading.Lock()
         self.accounts = []
         self.servers = {}
+        self.retired = set()
         self.closed = False
         atexit.register(self.close)
 
@@ -371,10 +379,18 @@ class Sessions:
         with self.lock:
             self.accounts = [dict(a) for a in accounts if a['provider'] == 'chatgpt']
             obsolete = [self.servers.pop(k)[1] for k, (a, _) in list(self.servers.items()) if a not in self.accounts]
-        for server in obsolete:
-            # Reaping a slow child must not stall GTK or the five-second stream.
-            server._fail('Connection removed or reconfigured; response discarded.')
-            threading.Thread(target=server.close, daemon=True).start()
+            for server in obsolete:
+                # Keep ownership until reaped, without stalling five-second ticks.
+                self.retired.add(server)
+                server._fail('Connection removed or reconfigured; response discarded.')
+                threading.Thread(target=self.retire, args=(server,), daemon=False).start()
+
+    def retire(self, server):
+        try:
+            server.close()
+        finally:
+            with self.lock:
+                self.retired.discard(server)
 
     def fetch(self, account):
         server = None
@@ -403,17 +419,17 @@ class Sessions:
                 return snapshot(account, limits)
         except Exception as error:
             if server:
+                server.close()
                 with self.lock:
                     if self.servers.get(account['id'], (None, None))[1] is server:
                         self.servers.pop(account['id'])
-                server.close()
             message = str(error) if isinstance(error, AccountError) else 'ChatGPT refresh failed; retry or reconnect.'
             return Snapshot(account['id'], 'unavailable', error=message)
 
     def close(self):
         with self.lock:
             self.closed = True
-            servers = [s for _, s in self.servers.values()]
+            servers = [s for _, s in self.servers.values()] + list(self.retired)
             self.servers.clear()
         for server in servers:
             server.close()
@@ -456,7 +472,7 @@ def connect(name, email, workspace, show_url, confirm, cancel=None):
     server, login_id, saved = None, None, False
     with login_lock():
         try:
-            server = Server(identity)
+            server = Server(identity, cancel=cancel)
             if server.call('account/read', {'refreshToken': False}).get('account') is not None:
                 raise AccountError('New isolated home unexpectedly has an account; sign-in rejected.')
             if cancel.is_set():

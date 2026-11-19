@@ -21,6 +21,8 @@ def emit(value):
 initialized = False
 ready = False
 logged_in = not options().get('signed_out', False)
+login_started = False
+post_login_calls = {}
 held = None
 for line in sys.stdin:
     request = json.loads(line)
@@ -37,6 +39,12 @@ for line in sys.stdin:
         assert ready, 'account RPC before initialized'
     opts = options()
     mode = opts.get('mode')
+    if login_started:
+        post_login_calls[method] = post_login_calls.get(method, 0) + 1
+        if (method == opts.get('post_login_delay_method')
+                and post_login_calls[method] == opts.get('post_login_delay_nth', 1)):
+            (root / 'blocked').write_text(method)
+            time.sleep(30)
     if method == 'initialize':
         initialized = True
         if mode == 'malformed':
@@ -84,6 +92,7 @@ for line in sys.stdin:
         if mode == 'account-change':
             emit({'method': 'account/updated', 'params': {}})
     elif method == 'account/login/start':
+        login_started = True
         assert request['params'] == {'type': 'chatgpt'}
         if mode == 'port':
             emit({'id': request['id'], 'error': {'message': 'port 1455 fixture-secret'}})

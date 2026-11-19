@@ -186,6 +186,43 @@ class ChatGPTTests(unittest.TestCase):
         self.assertEqual(load_accounts(self.config), [existing])
         self.assertFalse(chatgpt.home_for('a'*32).exists())
 
+    def test_cancel_interrupts_each_post_login_verification_rpc(self):
+        for method, nth in [('account/read', 1), ('account/rateLimits/read', 1),
+                            ('account/read', 2), ('account/read', 3),
+                            ('account/rateLimits/read', 2), ('account/read', 4)]:
+            with self.subTest(method=method, nth=nth):
+                cancel = threading.Event()
+                root = chatgpt.home_for('a'*32)
+                owned = []
+                server_type = chatgpt.Server
+                def server(*args, **kwargs):
+                    child = server_type(*args, **kwargs)
+                    owned.append(child)
+                    return child
+                with patch.object(chatgpt, 'Server', side_effect=server), ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(self.login, cancel=cancel, scenario={
+                        'post_login_delay_method': method, 'post_login_delay_nth': nth})
+                    try:
+                        deadline = time.monotonic() + 3
+                        while not (root / 'blocked').exists() and time.monotonic() < deadline:
+                            time.sleep(.005)
+                        self.assertTrue((root / 'blocked').exists(), 'Never reached slow post-login RPC')
+                        started = time.monotonic()
+                        cancel.set()
+                        with self.assertRaisesRegex(chatgpt.AccountError, 'cancelled'):
+                            future.result(3)
+                        self.assertLess(time.monotonic() - started, 3)
+                    finally:
+                        cancel.set()
+                        if not future.done():
+                            for child in owned:
+                                child.close()
+                self.assertEqual(len(owned), 1)
+                self.assertIsNotNone(owned[0].process.poll())
+                self.assertIsNone(owned[0].lease)
+                self.assertFalse(root.exists())
+                self.assertEqual(load_accounts(self.config), [])
+
     def test_disconnect_waits_for_reader_before_deleting_home(self):
         account = self.account()
         save_accounts([account], self.config)
@@ -239,6 +276,43 @@ class ChatGPTTests(unittest.TestCase):
             self.assertIsNotNone(future.result().error)
         self.assertIsNotNone(server.process.poll())
         self.assertFalse(sessions.servers)
+
+    def test_close_waits_for_retired_child_without_blocking_reconcile(self):
+        account = self.account()
+        sessions = chatgpt.Sessions()
+        self.addCleanup(sessions.close)
+        sessions.reconcile([account])
+        self.assertFalse(sessions.fetch(account).error)
+        server = sessions.servers[self.identity][1]
+        closing, shutdown_waiting, release = threading.Event(), threading.Event(), threading.Event()
+        close = server.close
+        reaper_daemons = []
+        def slow_close():
+            if closing.is_set():
+                shutdown_waiting.set()
+            reaper_daemons.append(threading.current_thread().daemon)
+            closing.set()
+            self.assertTrue(release.wait(3))
+            close()
+        with patch.object(server, 'close', side_effect=slow_close), ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                started = time.monotonic()
+                sessions.reconcile([])
+                self.assertLess(time.monotonic() - started, .2)
+                self.assertTrue(closing.wait(1))
+                self.assertIn(server, sessions.retired)
+                future = pool.submit(sessions.close)
+                self.assertTrue(shutdown_waiting.wait(1), 'Shutdown lost ownership of retired child')
+                self.assertFalse(future.done())
+            finally:
+                release.set()
+            future.result(3)
+        self.assertFalse(any(reaper_daemons))
+        self.assertIsNotNone(server.process.poll())
+        deadline = time.monotonic() + 1
+        while sessions.retired and time.monotonic() < deadline:
+            time.sleep(.005)
+        self.assertFalse(sessions.retired)
 
     def test_secrets_redacted(self):
         account = self.account(quota_error=False)

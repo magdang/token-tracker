@@ -1,5 +1,9 @@
 """Native GTK manager smoke test. Mocked login only; no OAuth or pointer motion."""
+import json
+import os
+import signal
 import sys
+import tempfile
 from pathlib import Path
 import time
 from unittest.mock import patch
@@ -7,6 +11,83 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from token_tracker.accounts import Manager, GLib  # noqa: E402
 from token_tracker.chatgpt import AccountError  # noqa: E402
+from token_tracker import accounts as manager, chatgpt  # noqa: E402
+
+
+def cleanup_smoke(action, method):
+    """Interrupt a real fixture RPC after login completion, with GTK still running."""
+    app = Manager()
+    app.set_application_id('io.github.magdang.TokenTracker.AccountsCleanupSmoke')
+    children, errors = [], []
+    server_type = chatgpt.Server
+    started = time.monotonic()
+    interrupted = False
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory) / 'chatgpt' / ('a' * 32)
+        root.mkdir(parents=True)
+        (root / 'fixture.json').write_text(json.dumps({
+            'signed_out': True, 'post_login_delay_method': method}))
+
+        def server(*args, **kwargs):
+            child = server_type(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def check():
+            nonlocal interrupted
+            try:
+                assert time.monotonic() - started < 8, 'Cleanup smoke timed out'
+                if not app.worker:
+                    app.name.set_text('Account 1')
+                    app.email.set_text('test@example.invalid')
+                    app.add.clicked()
+                    assert not app.worker.daemon
+                elif not interrupted and (root / 'blocked').exists():
+                    interrupted = True
+                    if action == 'cancel':
+                        app.cancel_button.clicked()
+                    elif action == 'close':
+                        app.window.close()
+                    else:
+                        os.kill(os.getpid(), signal.SIGTERM)
+                elif interrupted and action == 'cancel' and not app.busy():
+                    assert 'cancelled' in app.status.get_text()
+                    app.quit()
+            except Exception as error:
+                errors.append(str(error))
+                app.quit()
+                return False
+            return True
+
+        with patch.object(chatgpt, 'STATE', Path(directory)), \
+             patch.object(chatgpt.shutil, 'which', return_value=str(Path(__file__).parent.resolve() / 'fixtures/fake_codex.py')), \
+             patch.object(chatgpt.uuid, 'uuid4') as identity, \
+             patch.object(chatgpt, 'Server', side_effect=server), \
+             patch.object(chatgpt, 'load_accounts', return_value=[]), \
+             patch.object(chatgpt, 'save_accounts') as save, \
+             patch.object(manager, 'load_accounts', return_value=[]), \
+             patch.object(manager, 'Manager', return_value=app), \
+             patch.object(manager.Gio.AppInfo, 'launch_default_for_uri'):
+            identity.return_value.hex = 'a' * 32
+            timer = GLib.timeout_add(25, check)
+            try:
+                manager.run()
+            finally:
+                GLib.source_remove(timer)
+            save.assert_not_called()
+        assert not errors, errors
+        assert time.monotonic() - started < 8, 'Shutdown did not interrupt the slow RPC'
+        assert interrupted and not app.busy()
+        assert len(children) == 1 and children[0].process.poll() is not None
+        assert children[0].lease is None and not root.exists()
+        print(f'PASS: manager {action} during slow post-login {method} reaps child and deletes uncommitted home')
+
+
+if len(sys.argv) == 3:
+    assert sys.argv[1] in ('cancel', 'close', 'sigterm')
+    assert sys.argv[2] in ('account/read', 'account/rateLimits/read')
+    cleanup_smoke(*sys.argv[1:])
+    sys.exit(0)
 
 pin = {'email': 'test@example.invalid', 'planType': 'plus', 'userId': 'fixture-user',
        'accountId': 'fixture-workspace', 'workspaceName': 'Personal'}
