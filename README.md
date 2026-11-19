@@ -11,6 +11,7 @@ On Arch, dependencies are `python`, `python-gobject`, `gtk3`,
 Service such as GNOME Keyring). No pip dependencies.
 
 ```sh
+./bin/token-tracker accounts
 ./bin/token-tracker waybar
 ./bin/token-tracker overlay
 ./bin/token-tracker overlay --demo
@@ -27,7 +28,7 @@ replacing the executable path. Insert `custom/token-tracker` immediately before
 adapt [examples/waybar.css](examples/waybar.css). Back up both files first.
 
 The `AI` entry lives inside Waybar. Hover opens its native GTK tooltip; moving
-off closes it, just like Wi-Fi. There is no click requirement or separate popup.
+off closes it, just like Wi-Fi. Clicking AI opens the native account manager.
 The tooltip is informational and cannot be interacted with. No unsupported
 `on-hover` hook is used. Your existing tooltip theme applies.
 
@@ -62,7 +63,7 @@ backoff. Use only one entry point to avoid duplicate launchers. See `DESIGN.md`.
 ## Connect accounts
 
 Connections are independent, including multiple accounts from one provider.
-Use the ID printed by `add` for `set-key` and `remove`.
+Use the ID printed by `add` or `connect` for `set-key` and `remove`.
 
 ```sh
 ./bin/token-tracker add openai-api "OpenAI · Personal" --budget 30
@@ -77,8 +78,110 @@ Use the ID printed by `add` for `set-key` and `remove`.
 ./bin/token-tracker remove ACCOUNT_ID
 ```
 
+### Link three ChatGPT subscription accounts
+
+Install **codex-cli 0.170.0** and keep it on your PATH. This integration was
+verified against that installed version's generated JSON schemas, not inferred
+from latest-main documentation. No MCP dependency or API key is needed.
+
+Click **AI → Add ChatGPT account** (or run `./bin/token-tracker accounts`). Enter
+`Account 1` and its expected ChatGPT email. Optionally enter the expected workspace
+name or canonical workspace ID. Click **Add ChatGPT account**, complete browser
+sign-in, then review the returned email, plan, canonical **user ID** and
+**workspace/account ID**. Click **Link this verified user and workspace** only
+when they match. Repeat with `Account 2` and `Account 3`, using the corresponding
+email and browser identity each time. The manager does not select browser accounts
+or inspect cookies. Use the browser's account switcher yourself. It displays the
+sign-in URL, success/error state, and a **Cancel sign-in** button.
+
+The equivalent terminal flow, **one at a time**, is:
+
+```sh
+./bin/token-tracker connect chatgpt "Account 1"
+./bin/token-tracker connect chatgpt "Account 2"
+./bin/token-tracker connect chatgpt "Account 3"
+./bin/token-tracker list
+./bin/token-tracker status
+```
+
+Each command prompts for the expected email and optional workspace, opens and
+prints the sign-in URL, and asks you to confirm the verified identity with `y`.
+`--email` and `--workspace` can supply those expectations instead of prompting.
+Ctrl+C cancels. Do not paste tokens anywhere. Only user-invoked Add/connect starts
+OAuth; polling, opening the manager, and tests never start real sign-in. Finish
+or cancel one login before starting another: Codex uses callback port **1455**.
+If another Codex app owns the port, finish/close its login window and retry; the
+tracker never kills other Codex processes.
+
+A connection is saved only after official `account/read` and
+`account/rateLimits/read` expose email, known plan, canonical `userId`, and quota
+`accountId`. The alias is only a label. The user ID identifies the person; the
+quota account ID identifies the selected workspace/account. Both IDs are required:
+if a server/backend omits either, linking fails closed. A workspace display name
+alone cannot prove exact attribution. If you leave the workspace expectation
+blank, explicitly review its canonical ID in the confirmation. The stable
+0.170.0 schema does not expose workspace routing in `account/read`; the tracker
+does not enable experimental APIs to obtain it. If that field is supplied, its
+workspace ID must agree with the quota account ID.
+
+Every refresh rechecks the pinned email, plan, user ID, workspace ID and initially
+reported workspace name. Missing or changed pinned fields reject new quota; a plan
+or workspace change requires disconnecting and linking again. Duplicate user IDs
+**or** workspace IDs are rejected conservatively to avoid representing overlapping
+quota as independent accounts. This also deliberately prevents linking two
+workspaces for one person, or multiple people in a shared workspace. Account
+snapshots are never added together. Previous verified data may remain explicitly
+**stale** after a failed refresh, with its observation time and error visible.
+There is no fallback to another signed-in app, API key, or local session snapshot.
+
+Each connection has a random, app-owned home below
+`$XDG_DATA_HOME/token-tracker/chatgpt/ID` (default
+`~/.local/share/token-tracker/chatgpt/ID`). Its `codex/` directory is its own
+`CODEX_HOME`; isolated HOME/XDG paths and a neutral trusted working directory
+prevent use of your normal Codex/OpenCode config, instructions, plugins or MCP
+servers. The tracker uses supported strict config: read-only sandbox, no
+approvals, disabled plugins/hooks/apps/cloud skills, and an inherited-environment
+allowlist. It sends only initialize/initialized and account RPCs, never threads,
+turns, generation, PTY scraping, private quota endpoints, or raw credential APIs.
+The child has a restrictive umask; managed directories are 0700 and files 0600.
+Codex alone writes, reads and refreshes its credentials. The tracker never reads,
+copies, extracts or logs credential contents. Nonsecret verified metadata lives
+in the accounts config and is visible in the local manager, tooltip and `list`.
+
+Successful checks reuse one app-server per identity, with at most four parallel
+collector jobs and one job per account. RPCs time out after 15 seconds each;
+failed providers back off independently. Waybar retries after five minutes; the
+optional overlay uses exponential backoff up to five minutes. Config changes
+invalidate pending results and close obsolete children; exit reaps owned children.
+Use `remove ID` or the manager's **Disconnect and delete managed credentials** to
+remove a ChatGPT link. Running readers release their home on the next refresh;
+cleanup waits up to 20 seconds. If readers cannot stop in time, the connection is
+removed but an explicit error reports retained managed state. Close tracker
+readers before deleting that disconnected ID's managed directory. Other providers'
+keyring entries retain their existing removal behavior.
+
+**Scope:** This is the subscription's **coding quota**, including usage that
+OpenCode bills to the same ChatGPT plan. It does not expose the ChatGPT website's
+per-model message limits. Primary/secondary durations are shown exactly in minutes
+as reported, across all returned buckets. Missing usage is unknown, not 0%; a
+reported 0% remains 0%. Credit balances are credits, **not USD**. Provider data can
+lag, and five-second polling does not guarantee the backend updates that often.
+
+Protocol sources: the official [app-server guide](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/app-server/README.md),
+[account protocol](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/app-server-protocol/src/protocol/v2/account.rs),
+and [config schema](https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/core/config.schema.json)
+for 0.170.0, plus the installed `codex app-server generate-json-schema` output.
+[OpenCode's ChatGPT provider documentation](https://opencode.ai/docs/providers#chatgpt)
+describes subscription billing; OpenAI API keys use separate API billing.
+[CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/codex.md),
+[codex-status-mcp](https://github.com/DrSmile444/codex-status-mcp), and
+[chatgpt-quota-mcp](https://github.com/komaksym/chatgpt-quota-mcp) are related quota
+implementations; they are not runtime dependencies or protocol authorities here.
+
 ### What's real today
 
+- **ChatGPT subscription:** directly linked, verified coding quota via the official
+  Codex account API. See the three-account sign-in steps and attribution limits above.
 - **OpenAI API:** official organization cost reports, paginated, UTC calendar
   month to date. Requires an **admin API key**, not a normal inference key.
   Costs may lag billing. Optional project filter. A budget is a user-defined
@@ -96,7 +199,7 @@ Use the ID printed by `add` for `set-key` and `remove`.
 Configuration lives at `$XDG_CONFIG_HOME/token-tracker/accounts.json`
 (default `~/.config/token-tracker/accounts.json`). Keys go only into the
 desktop keyring, never into config, CLI arguments, or the repository.
-Removing a connection retains its keyring entry; use your keyring manager
+Removing an API connection retains its keyring entry; use your keyring manager
 to delete it. `status` prints usage and connection IDs, never keys.
 
 Manual metrics can be entered by editing a manual connection in the config:
@@ -121,6 +224,7 @@ export PYTHONPYCACHEPREFIX=/tmp/opencode/pycache TMPDIR=/tmp/opencode
 /usr/bin/python3 -m compileall -q token_tracker
 ./tests/run-smoke.sh --waybar-stream
 ./tests/run-smoke.sh --synthetic
+/usr/bin/python3 tests/smoke_accounts.py
 # On an unlocked Hyprland session (moves/restores the pointer):
 ./tests/run-smoke.sh
 ```

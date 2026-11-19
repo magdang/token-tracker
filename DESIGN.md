@@ -4,7 +4,21 @@ The recommended entry point is a Waybar custom module. It inherits the bar
 style and uses a native GTK hover tooltip, closing on pointer leave. A continuous
 JSON reporter updates every five seconds, with four background workers, one
 pending request per account, cached keyring lookups, and five-minute error retries.
-No separate launcher or panel is started in this mode.
+Clicking AI opens a single-instance native GTK account manager; hovering remains
+informational. The account manager starts browser sign-in only on Add, displays
+the URL and a cancellable progress state, and requires confirmation of returned
+identity metadata before saving. Its controls use the desktop's GTK theme.
+
+ChatGPT connections use isolated app-owned Codex homes and account-only JSON-RPC.
+Each collector reuses one app-server per identity. Email, plan, canonical user ID,
+quota account/workspace ID, and workspace name are pinned and checked again for
+every quota read. Missing IDs or changed fields reject new data. Duplicate users
+or workspaces are rejected rather than showing overlapping quota as independent.
+Codex owns credential storage and refresh; the tracker reads only structured
+account and quota responses. No generation requests or ambient-account fallback.
+Removing a link invalidates pending results, closes its child, and waits for
+readers before deleting that managed home. See README for protocol sources,
+three-account sign-in steps, and deliberate attribution limits.
 
 ## Optional standalone overlay
 
