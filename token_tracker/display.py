@@ -119,7 +119,7 @@ def context_text(account, result, now=None):
              'manual': 'Manual', 'openai-api': 'API costs · UTC month'}.get(account['provider'], '')
     if result.error or result.source == 'stale':
         scope = 'Stale · ' + scope if result.metrics else 'Unavailable · ' + scope
-    return scope + ' · ' + observed_at(result.updated_at, now)
+    return scope
 
 
 def quota_notes(account, result):

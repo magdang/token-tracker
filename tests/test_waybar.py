@@ -64,12 +64,13 @@ class WaybarTests(unittest.TestCase):
 
     def test_provider_failure_retains_stale_and_backs_off(self):
         account = self.accounts[0]
-        self.collector.results['0'] = Snapshot('0', 'manual', metrics=[Metric('Session', 42)])
+        self.collector.results['0'] = Snapshot('0', 'manual', '2026-11-18T12:00:00Z', [Metric('Session', 42)])
         future = Future()
         future.set_exception(RuntimeError('private provider body'))
         self.collector.pending['0'] = (account, future)
         result = self.collector.tick([account])['0']
         self.assertEqual(result.source, 'stale')
+        self.assertEqual(result.updated_at, '2026-11-18T12:00:00Z')
         self.assertEqual(result.metrics[0].used, 42)
         self.assertEqual(result.error, 'Provider refresh failed.')
         self.assertNotIn('0', self.collector.pending)

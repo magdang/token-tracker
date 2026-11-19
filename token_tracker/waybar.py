@@ -89,6 +89,8 @@ def markup(value):
 
 def report(accounts, results, *, demo=False, error=None, now=None):
     now = now or datetime.now(timezone.utc)
+    compact = len(accounts) > 1 or sum(len(r.metrics) for r in results.values()) > 4
+    font_size = (11 if compact else 12) * 1024
     lines = ['<b>AI usage' + (' · DEMO · sample data' if demo else '') + '</b>']
     if error:
         lines.append(markup(error))
@@ -104,22 +106,24 @@ def report(accounts, results, *, demo=False, error=None, now=None):
         if result.error:
             lines.append('<b>' + markup(result.error) + '</b>')
         for metric in result.metrics:
-            lines.append('\n' + markup(window_label(metric.label)) + '   <span size="16384" weight="bold">' + markup(metric_value(metric)) + '</span>')
+            lines.append(('' if compact else '\n') + markup(window_label(metric.label)) + '   <span weight="bold">' + markup(metric_value(metric)) + '</span>')
             fraction = remaining(metric)
             if fraction is not None:
                 filled = int(fraction * 20 + 1e-9)
                 lines.append('<span font_family="monospace">' + '█' * filled + '<span alpha="40%">' + '░' * (20 - filled) + '</span></span>')
+                if compact and metric.resets_at is not None:
+                    lines[-1] += '  ' + markup(reset_text(metric.resets_at, now))
             detail = usage_detail(metric)
             if detail:
                 lines.append(markup(detail))
-            if metric.resets_at is not None:
+            if metric.resets_at is not None and not (compact and fraction is not None):
                 lines.append(markup(reset_text(metric.resets_at, now)))
         note = quota_notes(account, result)
         if note:
             lines.append(markup(note))
         if not result.metrics and not result.error:
             lines.append('No usage data available.')
-    return json.dumps({'text': 'AI DEMO' if demo else 'AI', 'tooltip': '<span font_family="sans-serif" size="14336" weight="normal">' + '\n'.join(lines) + '</span>',
+    return json.dumps({'text': 'AI DEMO' if demo else 'AI', 'tooltip': f'<span font_family="sans-serif" size="{font_size}" weight="normal">' + '\n'.join(lines) + '</span>',
                        'class': 'demo' if demo else 'usage'}, ensure_ascii=False)
 
 

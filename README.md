@@ -30,12 +30,14 @@ adapt [examples/waybar.css](examples/waybar.css). Back up both files first.
 The `AI` entry lives inside Waybar. Hover opens its native GTK tooltip; moving
 off closes it, just like Wi-Fi. Clicking AI opens the native account manager.
 The tooltip is informational and cannot be interacted with. No unsupported
-`on-hover` hook is used. The tracker scopes **14pt body text and bold 16pt
-remaining values** to its own Pango tooltip; other tooltips keep their theme.
+`on-hover` hook is used. The tracker scopes **12pt text with bold remaining
+values** to its own Pango tooltip, using **11pt** for multiple accounts or more
+than four metrics; other tooltips keep their theme.
 Each 20-segment monochrome bar fills with **remaining allowance**, rounded down
 to 5% steps. The adjacent number is more precise. Window labels follow reported
-durations, with reset countdowns and observation age. Manual, local and stale
-sources remain explicit; failed refreshes retain their original observation time.
+durations, with reset countdowns. Compact mode removes metric spacer lines and
+places countdowns beside bars; the font stays at a readable 11pt floor. Manual,
+local and stale sources remain explicit; failed refreshes retain their original observation time.
 Unknown caps have no bar. Dollar amounts show a user-defined budget, never
 provider credit; uncapped credits stay credit balances. Exhausted/over-limit
 rows retain the used amount. Aliases identify accounts here; verified identity
@@ -147,7 +149,8 @@ or workspace change requires disconnecting and linking again. Duplicate user IDs
 quota as independent accounts. This also deliberately prevents linking two
 workspaces for one person, or multiple people in a shared workspace. Account
 snapshots are never added together. Previous verified data may remain explicitly
-**stale** after a failed refresh, with its observation time and error visible.
+**stale** after a failed refresh, with an explicit warning and error; its original
+observation time is retained internally.
 There is no fallback to another signed-in app, API key, or local session snapshot.
 
 Each connection has a random, app-owned home below

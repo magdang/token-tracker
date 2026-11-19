@@ -320,7 +320,7 @@ class Overlay(Gtk.Application):
             box.pack_start(label("Checking…", "muted"), False, False, 0)
             return box
         box.set_tooltip_text(
-            f"{result.source} · {observed_at(result.updated_at)}\n{result.note}"
+            f"{context_text(account, result)}\n{result.note}"
         )
         if result.error:
             box.pack_start(label(bounded(result.error), "warning"), False, False, 0)

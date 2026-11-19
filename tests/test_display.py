@@ -98,10 +98,50 @@ class DisplayTests(unittest.TestCase):
         account = {'provider': 'chatgpt', 'id': 'one', 'name': 'Alias'}
         result = Snapshot('one', 'live', '2026-11-18T12:00:00Z', [Metric('Quota', 42)], error='Sign-in failed <retry>')
         raw = json.loads(report([account], {'one': result}, now=NOW))['tooltip']
-        for expected in ('Stale', 'Observed 1d 0h ago', 'Sign-in failed &lt;retry&gt;', 'Coding quota'):
+        for expected in ('Stale', 'Sign-in failed &lt;retry&gt;', 'Coding quota'):
             self.assertIn(expected, raw)
+        self.assertNotIn('Observed', raw)
+        self.assertEqual(result.updated_at, '2026-11-18T12:00:00Z')
         for provider, scope in [('manual', 'Manual'), ('codex-local', 'Local snapshot')]:
             self.assertIn(scope, context_text(dict(account, provider=provider), result, NOW))
+
+    def test_account_density_has_readable_floor_and_keeps_every_window(self):
+        line_counts = {}
+        for count in (1, 3, 30):
+            with self.subTest(count=count):
+                accounts = [{'id': str(i), 'name': f'Sample {i}', 'provider': 'chatgpt'}
+                            for i in range(count)]
+                results = {a['id']: Snapshot(a['id'], 'live', NOW.isoformat(), [
+                    Metric('codex primary (300 min)', 32, resets_at='2026-11-19T14:15:00Z'),
+                    Metric('codex secondary (10080 min)', 58, resets_at='2026-11-22T16:00:00Z')])
+                           for a in accounts}
+                raw = json.loads(report(accounts, results, now=NOW))['tooltip']
+                root = ElementTree.fromstring(raw)
+                self.assertEqual(int(root.attrib['size']), (12 if count == 1 else 11) * 1024)
+                self.assertFalse(root.findall('.//span[@size]'))
+                text = ''.join(root.itertext())
+                for account in accounts:
+                    self.assertIn(account['name'] + '\n', text)
+                    self.assertEqual(results[account['id']].updated_at, NOW.isoformat())
+                for value in ('5-hour window', '7-day window', '68% left', '42% left',
+                              'Resets in 2h 15m', 'Resets in 3d 4h'):
+                    self.assertEqual(text.count(value), count)
+                self.assertEqual(text.count('█') + text.count('░'), count * 40)
+                self.assertNotIn('Observed', text)
+                line_counts[count] = len(text.splitlines())
+        self.assertLess(line_counts[3], line_counts[1] * 3)
+        self.assertLessEqual(line_counts[3], 22)
+
+    def test_dense_single_account_and_unknown_cap_reset(self):
+        raw = self.tooltip([Metric('Quota', 42, resets_at='2026-11-19T14:15:00Z')] * 5
+                           + [Metric('Unknown cap', 1, 0, resets_at='2026-11-19T14:15:00Z')])
+        self.assertEqual(ElementTree.fromstring(raw).attrib['size'], '11264')
+        self.assertEqual(raw.count('Resets in 2h 15m'), 6)
+        for provider, expected in [('manual', 'Manual'), ('codex-local', 'Local snapshot')]:
+            result = Snapshot('one', provider, NOW.isoformat())
+            self.assertEqual(context_text({'provider': provider}, result, NOW), expected)
+        stale = Snapshot('one', 'stale', NOW.isoformat(), [Metric('Quota', 42)])
+        self.assertIn('Stale', context_text({'provider': 'chatgpt'}, stale, NOW))
 
     def test_hostile_content_is_escaped_and_bounded(self):
         evil = '<span size="999999">&\x00\ud800\ufffe\u202e\n' + 'a' * 10000
