@@ -17,15 +17,21 @@ Service such as GNOME Keyring). No pip dependencies.
 ./bin/token-tracker status
 ```
 
-Running the overlay command again toggles the existing instance. Escape or
-Close hides it; Quit exits. It refreshes visible accounts every five minutes
-without blocking GTK. No autostart or desktop configuration is changed.
+Starts a small `AI` button at the top-right of the compositor's current monitor.
+The panel follows the button onto the same output. Hover to open it. Moving
+outside both button and panel closes the panel after a 180 ms grace period.
+The button remains visible. Click also opens it; Escape dismisses it and Quit
+exits the application. Running the command again toggles the panel.
 
-Optional Hyprland binding (replace with the actual absolute repo path):
+Accounts refresh automatically **every 5 seconds, including while collapsed**,
+without blocking GTK. Slow requests never overlap for the same account; errors
+back off from 10 seconds up to five minutes. Last successful data is retained
+and marked stale when refresh fails. Checking more frequently does not make
+provider billing or local snapshots update more frequently.
+No autostart or desktop configuration is changed. See `DESIGN.md` for UI decisions.
 
-```ini
-bind = SUPER, U, exec, /home/yousef/Projects/repos/usage-tracker/bin/token-tracker overlay
-```
+For an optional shortcut, follow the [official Hyprland documentation](https://wiki.hypr.land/)
+for your installed version and use the absolute path to `bin/token-tracker overlay`.
 
 ## Connect accounts
 
@@ -84,9 +90,17 @@ Manual metrics can be entered by editing a manual connection in the config:
 ## Development
 
 ```sh
+export PYTHONPYCACHEPREFIX=/tmp/opencode/pycache TMPDIR=/tmp/opencode
 /usr/bin/python3 -m unittest discover -s tests -v
 /usr/bin/python3 -m compileall -q token_tracker
+./tests/run-smoke.sh --synthetic
+# On an unlocked Hyprland session (moves/restores the pointer):
+./tests/run-smoke.sh
 ```
 
 Live credentials are not needed by tests. Demo data is explicitly marked and
 never written into account configuration. No telemetry or cloud backend.
+The real-pointer test additionally needs `wayland-scanner`, a C compiler,
+`libwayland-client` headers, and `grim`. It skips if hyprlock is active.
+Both smoke modes save only a demo-panel image to
+`/tmp/opencode/token-tracker-hover.png`, not a full-desktop screenshot.
