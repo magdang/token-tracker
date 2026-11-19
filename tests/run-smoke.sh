@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
+if [ "${1:-}" = "--waybar-stream" ]; then
+    exec /usr/bin/python3 tests/smoke_waybar.py
+fi
 if [ "${1:-}" != "--synthetic" ]; then
     if pgrep -x hyprlock >/dev/null; then
         echo "SKIP: unlock the desktop before real-pointer testing."
@@ -12,5 +15,9 @@ if [ "${1:-}" != "--synthetic" ]; then
     wayland-scanner private-code tests/virtual-pointer.xml "$BUILD/virtual-pointer-protocol.c"
     cc -Wall -Wextra -I"$BUILD" tests/virtual_pointer.c "$BUILD/virtual-pointer-protocol.c" \
         -lwayland-client -o /tmp/opencode/token-tracker-pointer
+fi
+if [ "${1:-}" = "--waybar-desktop" ]; then
+    shift
+    exec /usr/bin/python3 tests/smoke_waybar_desktop.py "$@"
 fi
 exec /usr/bin/python3 tests/smoke_overlay.py "$@"

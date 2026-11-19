@@ -3,6 +3,8 @@
  * No input device permissions or daemon required.
  */
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <time.h>
 #include <wayland-client.h>
@@ -24,7 +26,7 @@ static void removed(void *data, struct wl_registry *registry, uint32_t name) {
     (void)name;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     struct wl_display *display = wl_display_connect(NULL);
     if (!display) return 1;
     struct wl_registry *registry = wl_display_get_registry(display);
@@ -40,12 +42,15 @@ int main(void) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     uint32_t ms = (uint32_t)(now.tv_sec * 1000 + now.tv_nsec / 1000000);
-    zwlr_virtual_pointer_v1_motion(pointer, ms, wl_fixed_from_int(1), 0);
+    zwlr_virtual_pointer_v1_motion(pointer, ms, wl_fixed_from_int(argc == 4 ? atoi(argv[1]) : 1),
+                                   wl_fixed_from_int(argc == 4 ? atoi(argv[2]) : 0));
     zwlr_virtual_pointer_v1_frame(pointer);
     wl_display_roundtrip(display);
-    zwlr_virtual_pointer_v1_motion(pointer, ms + 1, wl_fixed_from_int(-1), 0);
+    zwlr_virtual_pointer_v1_motion(pointer, ms + 1, wl_fixed_from_int(argc == 4 ? 0 : -1), 0);
     zwlr_virtual_pointer_v1_frame(pointer);
     wl_display_roundtrip(display);
+    /* Keep the device alive while GTK waits to show a native tooltip. */
+    if (argc == 2 || argc == 4) sleep((unsigned)atoi(argv[argc - 1]));
     zwlr_virtual_pointer_v1_destroy(pointer);
     zwlr_virtual_pointer_manager_v1_destroy(manager);
     wl_registry_destroy(registry);
