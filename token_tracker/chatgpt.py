@@ -127,6 +127,14 @@ def secure_tree(root):
         for name in dirs + files:
             path = Path(directory) / name
             if path.is_symlink():
+                relative = path.relative_to(root).parts
+                # Codex creates executable aliases here on startup. Never chmod
+                # their targets or allow linked directories/credential files.
+                if (len(relative) == 5 and relative[:3] == ('codex', 'tmp', 'arg0-linux')
+                        and relative[3].startswith('codex-arg0')
+                        and name in ('applypatch', 'apply_patch', 'codex-linux-sandbox')
+                        and name in files and path.is_file()):
+                    continue
                 raise AccountError('Managed state must not contain symbolic links.')
             path.chmod(0o700 if path.is_dir() else 0o600)
 

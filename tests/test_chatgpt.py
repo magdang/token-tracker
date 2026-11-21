@@ -360,6 +360,29 @@ class ChatGPTTests(unittest.TestCase):
         collector.tick([])
         self.assertFalse(collector.results)
 
+    def test_codex_runtime_links_preserve_target_permissions(self):
+        root = self.scenario()
+        target = Path(self.temp.name) / 'codex-binary'
+        target.write_text('executable')
+        target.chmod(0o755)
+        runtime = root / 'codex/tmp/arg0-linux/codex-arg0example'
+        runtime.mkdir(parents=True)
+        for name in ('applypatch', 'apply_patch', 'codex-linux-sandbox'):
+            (runtime / name).symlink_to(target)
+        chatgpt.secure_tree(root)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+        server = chatgpt.Server(self.identity)
+        server.close()
+        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+        (runtime / 'unexpected').symlink_to(target)
+        with self.assertRaises(chatgpt.AccountError):
+            chatgpt.secure_tree(root)
+        (runtime / 'unexpected').unlink()
+        (runtime / 'apply_patch').unlink()
+        (runtime / 'apply_patch').symlink_to(target.parent, target_is_directory=True)
+        with self.assertRaises(chatgpt.AccountError):
+            chatgpt.secure_tree(root)
+
     def test_bad_managed_id_and_symlink(self):
         with self.assertRaises(chatgpt.AccountError):
             chatgpt.home_for('../../.codex')
